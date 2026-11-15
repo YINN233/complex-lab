@@ -1,0 +1,16 @@
+*.jou
+*.log
+*.str
+*.dcp
+*.bit
+*.wdb
+*.wcfg
+.Xil/
+*.runs/
+*.sim/
+*.gen/
+*.cache/
+*.hw/
+*.ip_user_files/
+__pycache__/
+.DS_Store
