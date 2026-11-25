@@ -13,4 +13,5 @@
 *.hw/
 *.ip_user_files/
 __pycache__/
+/build/
 .DS_Store

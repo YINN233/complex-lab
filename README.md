@@ -2,7 +2,20 @@
 
 Repository for the RISC-V computer organization comprehensive lab.
 
-## Current status
+## Lab6 base implementation
+
+The `lab6/grp56-base` branch implements a five-stage ThinPAD CPU for the
+32-bit Ver.1 monitor, with the group’s `SBSET`, `SBCLR` and `CLZ` instructions
+from Bitmanip 0.92. See the [Lab6 implementation and verification notes](docs/lab6-base.md)
+for build commands, board setup, and verification results.
+
+- `rtl/core/` contains the CPU, decoder and ALU.
+- `rtl/soc/` connects the two Wishbone masters to BaseRAM, ExtRAM and UART.
+- `rtl/board/` provides the ThinPAD top and the single-step clock.
+- `sim/` contains the CPU, arbiter and UART/monitor regression tests.
+- `scripts/` contains the Vivado build and simulation entry points.
+
+## Reference material
 
 This repository contains:
 
@@ -51,11 +64,3 @@ reference/
 - Do not redistribute course materials.
 - Fill all `【待确认】` items before coding starts.
 - Freeze interfaces before integration.
-
-## Next steps
-
-1. Confirm the three assigned B-extension instructions.
-2. Obtain the monitor program documents and binaries.
-3. Freeze the CPU, CSR, and MMU interfaces.
-4. Start the three work streams in parallel.
-5. Tag each milestone.

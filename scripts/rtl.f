@@ -1,0 +1,13 @@
+rtl/core/lab6_pkg.sv
+rtl/core/lab6_decode.sv
+rtl/core/lab6_alu.sv
+reference/lab5/rtl/core/regfile32.sv
+rtl/core/lab6_core.sv
+reference/lab5/rtl/core/wb_master.sv
+rtl/soc/lab6_wb_arbiter.sv
+reference/lab5/rtl/common/wb_mux_3.v
+reference/lab5/rtl/common/sram_controller.sv
+reference/lab5/rtl/common/async.v
+reference/lab5/rtl/common/uart_controller.sv
+rtl/soc/lab6_soc.sv
+rtl/board/thinpad_top.sv
