@@ -101,6 +101,26 @@ module lab6_decode (
         control_o.illegal = (funct3 != 3'h0 && funct3 != 3'h2);
         imm_o = {{20{inst_i[31]}}, inst_i[31:25], inst_i[11:7]};
       end
+      7'h73: begin                        // SYSTEM and Zicsr
+        if (funct3 == 0) begin
+          case (inst_i)
+            32'h0000_0073: control_o.system_op = SYS_ECALL;
+            32'h0010_0073: control_o.system_op = SYS_EBREAK;
+            32'h3020_0073: control_o.system_op = SYS_MRET;
+            default: control_o.illegal = 1;
+          endcase
+        end else begin
+          control_o.csr_immediate = funct3[2];
+          control_o.use_rs1 = !funct3[2];
+          control_o.write_rd = 1;
+          case (funct3[1:0])
+            2'b01: control_o.system_op = SYS_CSR_WRITE;
+            2'b10: control_o.system_op = SYS_CSR_SET;
+            2'b11: control_o.system_op = SYS_CSR_CLEAR;
+            default: control_o.illegal = 1;
+          endcase
+        end
+      end
       default: control_o.illegal = 1;
     endcase
   end

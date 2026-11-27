@@ -15,8 +15,11 @@ module tb_lab6_soc;
   wire ext_ce_n, ext_oe_n, ext_we_n;
   string image_dir;
   byte unsigned rx_queue[$];
-  logic [31:0] monitor_entries [0:4];
+  logic [31:0] monitor_entries [0:6];  // SIMPLE, performance tests, PUTC, SPIN.
   logic [31:0] lab1_entries [0:2];
+  logic [31:0] trap_entries [0:2];  // EBREAK entry, illegal entry, illegal PC.
+  bit expect_illegal = 0;
+  int illegal_count = 0;
 
   lab6_soc dut (
       .clk(clk), .rst(rst), .leds(), .txd(txd), .rxd(rxd),
@@ -152,14 +155,55 @@ module tb_lab6_soc;
     $display("LAB6 MONITOR PERFORMANCE SMOKE (3 iterations) PASS");
   endtask
 
+  task automatic check_monitor_ver2;
+    monitor_go(monitor_entries[5]);  // Official UTEST_PUTC: two ECALLs and a return.
+    expect_text("OK");
+    expect_byte(8'h07);
+    expect_register(10, 32'h4b);
+    $display("LAB6 MONITOR VER2 USER ECALL AND RETURN PASS");
+
+    monitor_upload("ver2_traps");
+    monitor_go(trap_entries[0]);
+    expect_byte(8'h07);
+    monitor_dump(USER_DATA + 'h120, 4);
+    expect_word('h135);  // The store before EBREAK commits, the following one does not.
+    $display("LAB6 MONITOR VER2 PRECISE EBREAK PASS");
+
+    monitor_go(monitor_entries[6]);  // Official UTEST_SPIN never returns on its own.
+    expect_byte(8'h81);
+    monitor_dump(USER_DATA + 'h120, 4);
+    expect_word('h135);
+    $display("LAB6 MONITOR VER2 TIMER TIMEOUT AND COMMAND RECOVERY PASS");
+
+    expect_illegal = 1;
+    monitor_go(trap_entries[1]);
+    expect_byte(8'h80);
+    expect_word(trap_entries[2]);
+    expect_word(2);
+    expect_word(32'h0000_007b);
+    expect_illegal = 0;
+    if (illegal_count != 1) $fatal(1, "expected one illegal instruction trap, got %0d", illegal_count);
+
+    expect_text("MONITOR for RISC-V - initialized.");
+    monitor_dump(USER_DATA + 'h124, 4);
+    expect_word('h246);
+    monitor_go(monitor_entries[0]);
+    expect_byte(8'h07);
+    expect_register(30, 1);
+    $display("LAB6 MONITOR VER2 PRECISE ILLEGAL TRAP AND REBOOT PASS");
+  endtask
+
   initial begin : timeout
-    #150ms;
-    $fatal(1, "SoC timed out after 150 ms");
+    if ($test$plusargs("VER2")) #1200ms;  // Include the original 10,000,000-tick timeout.
+    else #150ms;
+    $fatal(1, "SoC timed out at PC %h", dut.cpu_pc);
   end
 
   always @(posedge clk) if (!rst) begin
-    if (dut.cpu_illegal)
-      $fatal(1, "illegal instruction, fetch PC %h", dut.cpu_pc);
+    if (dut.cpu_illegal) begin
+      if (!expect_illegal) $fatal(1, "illegal instruction, fetch PC %h", dut.cpu_pc);
+      illegal_count++;
+    end
     if (dut.wbs2_cyc && dut.wbs2_stb && dut.wbs2_adr == 32'h1000_0005 &&
         dut.wbs2_sel !== 4'b0010)
       $fatal(1, "UART status access did not select byte lane 1");
@@ -167,14 +211,20 @@ module tb_lab6_soc;
 
   initial begin : test_sequence
     int first_term, second_term, next_term;
+    bit ver2;
+    string monitor_image;
     if (!$value$plusargs("IMAGES=%s", image_dir)) $fatal(1, "missing IMAGES");
+    ver2 = $test$plusargs("VER2");
 
     #1;
     if ($test$plusargs("SUM")) $readmemh({image_dir, "/sum.mem"}, base_ram.mem);
+    else if ($test$plusargs("UART_IRQ")) $readmemh({image_dir, "/uart_irq.mem"}, base_ram.mem);
     else begin
-      $readmemh({image_dir, "/monitor.mem"}, base_ram.mem);
-      $readmemh({image_dir, "/monitor-entries.mem"}, monitor_entries);
+      monitor_image = ver2 ? "monitor-ver2" : "monitor";
+      $readmemh({image_dir, "/", monitor_image, ".mem"}, base_ram.mem);
+      $readmemh({image_dir, "/", monitor_image, "-entries.mem"}, monitor_entries, 0, ver2 ? 6 : 4);
       $readmemh({image_dir, "/lab1-entries.mem"}, lab1_entries);
+      if (ver2) $readmemh({image_dir, "/ver2_traps-entries.mem"}, trap_entries);
       // Shorten only the leading LUI of each long benchmark in simulated SRAM.
       // Keep the shipped monitor binary, benchmark bodies and call paths intact.
       for (int index = 1; index <= 4; index++) begin
@@ -192,6 +242,13 @@ module tb_lab6_soc;
       #(12 * BIT_NS);
       if (rx_queue.size() != 0) $fatal(1, "unexpected repeated UART write");
       $display("LAB6 SOC SUM PASS");
+    end else if ($test$plusargs("UART_IRQ")) begin
+      expect_byte("R");
+      send_byte("Z");
+      expect_byte("A");
+      send_byte("m");
+      expect_byte("P");
+      $display("LAB6 SOC UART IRQ PASS");
     end else begin
       expect_text("MONITOR for RISC-V - initialized.");
       check_monitor_tests();
@@ -229,7 +286,10 @@ module tb_lab6_soc;
       expect_word(32);
       expect_word(31);
       $display("LAB6 MONITOR GRP56 PASS");
-      $display("LAB6 SOC MONITOR PASS");
+      if (ver2) begin
+        check_monitor_ver2();
+        $display("LAB6 SOC MONITOR VER2 PASS");
+      end else $display("LAB6 SOC MONITOR PASS");
     end
     $finish;
   end

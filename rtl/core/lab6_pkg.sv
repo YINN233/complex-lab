@@ -10,9 +10,15 @@ package lab6_pkg;
     FLOW_NEXT, FLOW_BEQ, FLOW_BNE, FLOW_JAL, FLOW_JALR
   } flow_t;
 
+  typedef enum logic [2:0] {
+    SYS_NONE, SYS_CSR_WRITE, SYS_CSR_SET, SYS_CSR_CLEAR, SYS_ECALL, SYS_EBREAK, SYS_MRET
+  } system_op_t;
+
   typedef struct packed {
     alu_op_t op;
     flow_t flow;
+    system_op_t system_op;
+    logic csr_immediate;
     logic illegal;
     logic use_rs1;
     logic use_rs2;

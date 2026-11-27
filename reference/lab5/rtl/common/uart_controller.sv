@@ -5,7 +5,8 @@ module uart_controller #(
     parameter DATA_WIDTH = 32,
 
     parameter CLK_FREQ = 50_000_000,
-    parameter BAUD = 115200
+    parameter BAUD = 115200,
+    parameter ENABLE_RX_IRQ = 0
 ) (
     // clk and reset
     input wire clk_i,
@@ -23,10 +24,12 @@ module uart_controller #(
 
     // uart interface
     output reg uart_txd_o,
-    input  wire uart_rxd_i
+    input  wire uart_rxd_i,
+    output wire rx_irq_o
 );
 
   localparam REG_DATA = 8'h00;
+  localparam REG_IER = 8'h01;
   localparam REG_STATUS = 8'h05;
 
   // uart transmitter
@@ -63,6 +66,16 @@ module uart_controller #(
 
   /*-- internal registers --*/
   wire [7:0] reg_status = {2'b0, ~txd_busy, 4'b0, rxd_data_ready};
+  logic rx_irq_enable;
+  assign rx_irq_o = ENABLE_RX_IRQ && rx_irq_enable && rxd_data_ready;
+
+  always_ff @(posedge clk_i) begin
+    if (rst_i)
+      rx_irq_enable <= 0;
+    else if (ENABLE_RX_IRQ && wb_cyc_i && wb_stb_i && !wb_ack_o &&
+             wb_we_i && wb_adr_i[7:0] == REG_IER && wb_sel_i[1])
+      rx_irq_enable <= wb_dat_i[8];
+  end
 
   /*-- wishbone fsm --*/
   always_ff @(posedge clk_i) begin
@@ -117,6 +130,11 @@ module uart_controller #(
           if (wb_sel_i[1]) wb_dat_o[15:8] <= reg_status;
           if (wb_sel_i[2]) wb_dat_o[23:16] <= reg_status;
           if (wb_sel_i[3]) wb_dat_o[31:24] <= reg_status;
+        end
+
+        REG_IER: begin
+          if (ENABLE_RX_IRQ && wb_sel_i[1])
+            wb_dat_o <= {23'b0, rx_irq_enable, 8'b0};
         end
 
         default: ;  // do nothing

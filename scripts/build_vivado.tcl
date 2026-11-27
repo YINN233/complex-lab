@@ -14,8 +14,8 @@ close $manifest
 add_files -norecurse $sources
 
 set reference [file join $root reference lab5]
-add_files -fileset constrs_1 -norecurse [file join $reference constraints thinpad_top.xdc]
-import_ip -files [file join $reference ip pll_example.xci]
+add_files -fileset constrs_1 -norecurse [list [file join $reference constraints thinpad_top.xdc]]
+import_ip -files [list [file join $reference ip pll_example.xci]]
 generate_target all [get_ips pll_example]
 set_property top thinpad_top [get_filesets sources_1]
 update_compile_order -fileset sources_1

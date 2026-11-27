@@ -14,14 +14,16 @@ IMAGES = ROOT / "build" / "images"
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vivado-bin", type=Path, help="Vivado's bin directory")
-    parser.add_argument("--test", choices=("all", "core", "bus", "sum", "monitor"), default="all")
+    parser.add_argument("--test", choices=("all", "core", "bus", "sum", "monitor", "monitor-ver2", "irq"),
+                        default="all")
     args = parser.parse_args()
 
     def run(name, *arguments):
-        path = str(args.vivado_bin.resolve() / name) if args.vivado_bin else name
-        executable = shutil.which(path)
+        directory = str(args.vivado_bin.resolve()) if args.vivado_bin else None
+        executable = shutil.which(name, path=directory)
         if not executable:
-            raise SystemExit(f"Vivado tool not found: {path}")
+            location = f" in {directory}" if directory else " on PATH"
+            raise SystemExit(f"Vivado tool not found: {name}{location}")
         return subprocess.run([executable, *map(str, arguments)], cwd=BUILD,
                               check=True, text=True, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT).stdout
@@ -29,8 +31,7 @@ def main():
     def simulate(top, name, marker, plusargs=(), wave=False):
         options = [top, "--onerror", "quit"]
         if wave:
-            options.extend(("--tclbatch", (ROOT / "scripts" / "core_wave.tcl").as_posix(),
-                            "--wdb", f"{name}.wdb"))
+            options.extend(("--tclbatch", "core_wave.tcl", "--wdb", f"{name}.wdb"))
         else:
             options.append("--runall")
         for argument in plusargs:
@@ -57,6 +58,8 @@ def main():
 
         selected = args.test
         if selected in ("all", "core"):
+            # XSim splits a Tcl batch path containing spaces even in a response file.
+            shutil.copyfile(ROOT / "scripts" / "core_wave.tcl", BUILD / "core_wave.tcl")
             run("xelab", "tb_lab6_core", "-s", "core", "-debug", "typical")
             for mode in (0, 1, 2):
                 simulate("core", f"core-{mode}", "LAB6 CORE PASS",
@@ -64,7 +67,7 @@ def main():
         if selected in ("all", "bus"):
             run("xelab", "tb_lab6_bus", "-s", "bus")
             simulate("bus", "bus-run", "LAB6 BUS PASS")
-        if selected in ("all", "sum", "monitor"):
+        if selected in ("all", "sum", "monitor", "monitor-ver2", "irq"):
             run("xelab", "tb_lab6_soc", "-s", "soc", "-debug", "typical")
             if selected in ("all", "sum"):
                 simulate("soc", "soc-sum", "LAB6 SOC SUM PASS",
@@ -72,6 +75,12 @@ def main():
             if selected in ("all", "monitor"):
                 simulate("soc", "soc-monitor", "LAB6 SOC MONITOR PASS",
                          ("IMAGES=../images",))
+            if selected == "monitor-ver2":
+                simulate("soc", "soc-monitor-ver2", "LAB6 SOC MONITOR VER2 PASS",
+                         ("IMAGES=../images", "VER2"))
+            if selected == "irq":
+                simulate("soc", "soc-irq", "LAB6 SOC UART IRQ PASS",
+                         ("IMAGES=../images", "UART_IRQ"))
     except subprocess.CalledProcessError as error:
         raise SystemExit(f"Vivado command failed ({error.returncode})\n{error.stdout}") from error
 

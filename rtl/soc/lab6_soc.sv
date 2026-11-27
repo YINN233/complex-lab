@@ -27,7 +27,7 @@ module lab6_soc (
 );
 
   logic [31:0] cpu_pc;
-  logic cpu_illegal;
+  logic cpu_illegal, timer_irq, uart_irq;
 
   logic if_req, if_ready, if_cyc, if_stb, if_ack;
   logic [31:0] if_addr, if_wb_addr, if_rdata, if_wb_rdata;
@@ -44,6 +44,8 @@ module lab6_soc (
   logic [31:0] bus_dat_i;
   logic [ 3:0] bus_sel;
   logic        bus_we;
+  logic        timer_ack, peripheral_ack;
+  logic [31:0] timer_rdata, peripheral_rdata;
 
   logic wbs0_cyc;
   logic wbs0_stb;
@@ -73,9 +75,12 @@ module lab6_soc (
   logic wbs2_we;
 
   assign leds = {cpu_illegal, cpu_pc[14:0]};
+  assign bus_ack = timer_ack || peripheral_ack;
+  assign bus_dat_i = timer_ack ? timer_rdata : peripheral_rdata;
 
   lab6_core u_cpu (
       .clk_i(clk), .rst_i(rst),
+      .timer_irq_i(timer_irq), .uart_irq_i(uart_irq),
       .imem_req_o(if_req), .imem_addr_o(if_addr),
       .imem_ack_i(if_ready), .imem_rdata_i(if_rdata),
       .dmem_req_o(mem_req), .dmem_addr_o(mem_addr), .dmem_we_o(mem_we),
@@ -117,17 +122,25 @@ module lab6_soc (
       .bus_ack_i(bus_ack), .bus_rdata_i(bus_dat_i)
   );
 
+  lab6_timer u_timer (
+      .clk_i(clk), .rst_i(rst),
+      .wb_cyc_i(bus_cyc), .wb_stb_i(bus_stb), .wb_we_i(bus_we),
+      .wb_addr_i(bus_adr), .wb_wdata_i(bus_dat_o), .wb_sel_i(bus_sel),
+      .wb_ack_o(timer_ack), .wb_rdata_o(timer_rdata),
+      .timer_irq_o(timer_irq)
+  );
+
   wb_mux_3 wb_mux (
       .clk(clk),
       .rst(rst),
 
       .wbm_adr_i(bus_adr),
       .wbm_dat_i(bus_dat_o),
-      .wbm_dat_o(bus_dat_i),
+      .wbm_dat_o(peripheral_rdata),
       .wbm_we_i (bus_we),
       .wbm_sel_i(bus_sel),
       .wbm_stb_i(bus_stb),
-      .wbm_ack_o(bus_ack),
+      .wbm_ack_o(peripheral_ack),
       .wbm_err_o(),
       .wbm_rty_o(),
       .wbm_cyc_i(bus_cyc),
@@ -218,7 +231,8 @@ module lab6_soc (
 
   uart_controller #(
       .CLK_FREQ(10_000_000),
-      .BAUD    (115200)
+      .BAUD    (115200),
+      .ENABLE_RX_IRQ(1)
   ) u_uart (
       .clk_i(clk),
       .rst_i(rst),
@@ -231,7 +245,8 @@ module lab6_soc (
       .wb_sel_i(wbs2_sel),
       .wb_we_i (wbs2_we),
       .uart_txd_o(txd),
-      .uart_rxd_i(rxd)
+      .uart_rxd_i(rxd),
+      .rx_irq_o(uart_irq)
   );
 
 endmodule

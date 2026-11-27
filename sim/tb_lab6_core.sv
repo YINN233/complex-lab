@@ -28,6 +28,7 @@ module tb_lab6_core;
 
   lab6_core dut (
       .clk_i(clk), .rst_i(rst),
+      .timer_irq_i(1'b0), .uart_irq_i(1'b0),
       .imem_req_o(ireq), .imem_addr_o(iaddr), .imem_ack_i(iack), .imem_rdata_i(idata),
       .dmem_req_o(dreq), .dmem_addr_o(daddr), .dmem_we_o(dwe),
       .dmem_sel_o(dsel), .dmem_wdata_o(dwdata), .dmem_ack_i(dack), .dmem_rdata_i(drdata),

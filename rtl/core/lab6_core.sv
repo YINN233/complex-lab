@@ -5,6 +5,8 @@ module lab6_core #(
 ) (
     input  logic        clk_i,
     input  logic        rst_i,
+    input  logic        timer_irq_i,
+    input  logic        uart_irq_i,
     output logic        imem_req_o,
     output logic [31:0] imem_addr_o,
     input  logic        imem_ack_i,
@@ -62,11 +64,13 @@ module lab6_core #(
   logic [4:0] id_rs1, id_rs2;
   decode_t id_control;
   logic load_use, id_advance, mem_can_advance;
-  logic wb_write, forward_mem, redirect, stop_on_illegal, flush_front;
+  logic wb_write, forward_mem, redirect, flush_front;
   logic [31:0] ex_rs1, ex_rs2, alu_a, alu_b, alu_result;
-  logic [31:0] redirect_pc, load_result;
+  logic [31:0] branch_target, redirect_pc, load_result;
   logic [7:0] load_byte;
   logic branch_taken, link_result;
+  logic execute, trap, illegal_trap, mret, csr_access, misaligned_data;
+  logic [31:0] csr_operand, csr_value, trap_target;
 
   assign id_rs1 = if_id.inst[19:15];
   assign id_rs2 = if_id.inst[24:20];
@@ -101,12 +105,29 @@ module lab6_core #(
   assign branch_taken = link_result ||
                         (id_ex.control.flow == FLOW_BEQ && ex_rs1 == ex_rs2) ||
                         (id_ex.control.flow == FLOW_BNE && ex_rs1 != ex_rs2);
-  assign redirect_pc = (id_ex.control.flow == FLOW_JALR)
-                       ? ((ex_rs1 + id_ex.imm) & 32'hffff_fffe)
-                       : (id_ex.pc + id_ex.imm);
-  assign stop_on_illegal = id_ex.valid && id_ex.control.illegal && mem_can_advance;
-  assign redirect = id_ex.valid && !id_ex.control.illegal && branch_taken && mem_can_advance;
-  assign flush_front = redirect || stop_on_illegal;
+  assign branch_target = (id_ex.control.flow == FLOW_JALR)
+                         ? ((ex_rs1 + id_ex.imm) & 32'hffff_fffe)
+                         : (id_ex.pc + id_ex.imm);
+  // Resolve traps and CSR writes only when the older MEM instruction can finish.
+  // A trap suppresses the EX instruction and all younger instructions.
+  assign execute = !rst_i && id_ex.valid && mem_can_advance;
+  assign csr_operand = id_ex.control.csr_immediate ? {27'b0, id_ex.rs1} : ex_rs1;
+  assign misaligned_data = !id_ex.control.byte_access && (alu_result[1:0] != 0);
+  lab6_trap trap_control (
+      .clk_i(clk_i), .rst_i(rst_i), .execute_i(execute),
+      .pc_i(id_ex.pc), .inst_i(id_ex.inst), .system_op_i(id_ex.control.system_op),
+      .csr_operand_i(csr_operand), .illegal_inst_i(id_ex.control.illegal),
+      .misaligned_target_i(branch_taken && branch_target[1:0] != 0), .branch_target_i(branch_target),
+      .misaligned_load_i(misaligned_data && id_ex.control.load),
+      .misaligned_store_i(misaligned_data && id_ex.control.store), .data_addr_i(alu_result),
+      .timer_irq_i(timer_irq_i), .uart_irq_i(uart_irq_i),
+      .csr_value_o(csr_value), .csr_access_o(csr_access),
+      .trap_o(trap), .illegal_trap_o(illegal_trap), .mret_o(mret), .target_o(trap_target)
+  );
+
+  assign redirect = trap || mret || (execute && branch_taken);
+  assign redirect_pc = (trap || mret) ? trap_target : branch_target;
+  assign flush_front = redirect;
 
   assign dmem_req_o = !rst_i && ex_mem.valid && (ex_mem.load || ex_mem.store);
   assign dmem_addr_o = ex_mem.result;
@@ -123,7 +144,7 @@ module lab6_core #(
                     ((id_control.use_rs1 && id_rs1 == id_ex.rd) ||
                      (id_control.use_rs2 && id_rs2 == id_ex.rd));
   assign id_advance = if_id.valid && mem_can_advance && !load_use && !flush_front;
-  assign issue_fetch = !rst_i && !illegal_o && !fetch_pending && !flush_front &&
+  assign issue_fetch = !rst_i && !fetch_pending && !flush_front &&
                        (!if_id.valid || id_advance);
   assign imem_req_o = !rst_i && (fetch_pending || issue_fetch);
   assign imem_addr_o = fetch_pending ? pending_pc : fetch_pc;
@@ -143,6 +164,7 @@ module lab6_core #(
       illegal_o <= 0;
       if_id <= '0;
     end else begin
+      illegal_o <= illegal_trap;
       // Once issued, the fetch owns its IF/ID slot until ACK or a redirect.
       if (issue_fetch) begin
         fetch_pc <= fetch_pc + 4;
@@ -159,8 +181,7 @@ module lab6_core #(
       if (flush_front) begin
         if_id.valid <= 0;
         if (fetch_pending && !imem_ack_i) discard_fetch <= 1;
-        if (redirect) fetch_pc <= redirect_pc;
-        if (stop_on_illegal) illegal_o <= 1;
+        fetch_pc <= redirect_pc;
       end else if (accept_fetch) begin
         if_id <= {1'b1, imem_addr_o, imem_rdata_i};
       end else if (id_advance) begin
@@ -185,11 +206,11 @@ module lab6_core #(
         mem_wb.result <= ex_mem.load ? load_result : ex_mem.result;
         mem_wb.write_rd <= ex_mem.write_rd;
 
-        ex_mem.valid <= id_ex.valid && !id_ex.control.illegal;
+        ex_mem.valid <= id_ex.valid && !trap;
         ex_mem.pc <= id_ex.pc;
         ex_mem.inst <= id_ex.inst;
         ex_mem.rd <= id_ex.rd;
-        ex_mem.result <= link_result ? (id_ex.pc + 4) : alu_result;
+        ex_mem.result <= csr_access ? csr_value : (link_result ? (id_ex.pc + 4) : alu_result);
         ex_mem.store_data <= ex_rs2;
         ex_mem.write_rd <= id_ex.control.write_rd;
         ex_mem.load <= id_ex.control.load;
